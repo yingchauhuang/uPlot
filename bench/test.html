@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title>μPlot Demo</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+
+		<link rel="stylesheet" href="../dist/uPlot.min.css">
+		<style>
+			body {
+				margin: 0;
+			}
+
+			.u-legend.u-inline .u-value {
+				width: 150px;
+				text-align: left;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="../dist/uPlot.iife.min.js"></script>
+		<h2 id="wait">Loading lib....</h2>
+
+		<script>
+			function round2(val) {
+				return Math.round(val * 100) / 100;
+			}
+
+			function round3(val) {
+				return Math.round(val * 1000) / 1000;
+			}
+
+			function prepData(packed) {
+				console.time("prep");
+				arrayColumn = (arr, n) => arr.map(x => x[n]);
+
+				// 55,550 data points x 3 series = 166,650
+				let data = [
+					arrayColumn(packed,1),
+					arrayColumn(packed,2),
+					arrayColumn(packed,3),
+					arrayColumn(packed,4),
+				];
+
+
+				console.timeEnd("prep");
+
+				return data;
+			}
+
+			function makeChart(data) {
+				console.time("chart");
+
+				const opts = {
+					title: "Server Events",
+					width: 1920,
+					height: 600,
+				//	ms:     1,
+				//	cursor: {
+				//		x: false,
+				//		y: false,
+				//	},
+					series: [
+						{},
+						{
+							label: "Bid",
+							scale: "%",
+							value: (u, v) => v == null ? null : v.toFixed(1) + "%",
+							stroke: "red",
+							width: 1/devicePixelRatio,
+						},
+						{
+							label: "Ask",
+							scale: "%",
+							value: (u, v) => v == null ? null : v.toFixed(1) + "%",
+							stroke: "blue",
+							width: 1/devicePixelRatio,
+						},
+						{
+							label: "Price",
+							scale: "mb",
+							value: (u, v) => v == null ? null : v.toFixed(2) + " MB",
+							stroke: "green",
+							width: 1/devicePixelRatio,
+						}
+					],
+					axes: [
+						{},
+						{
+							scale: "%",
+							values: (u, vals, space) => vals.map(v => +v.toFixed(1) + "%"),
+						},
+						{
+							side: 1,
+							scale: "mb",
+							size: 60,
+							values: (u, vals, space) => vals.map(v => +v.toFixed(2) + " MB"),
+							grid: {show: false},
+						},
+					],
+				};
+
+				let uplot = new uPlot(opts, data, document.body);
+
+				Promise.resolve().then(() => {
+					wait.textContent = "Done!";
+					console.timeEnd("chart");
+				});
+			}
+
+			let wait = document.getElementById("wait");
+			wait.textContent = "Fetching data.json (2.07MB)....";
+			fetch("AU0000078644.json").then(r => r.json()).then(packed => {
+				wait.textContent = "Rendering...";
+				let data = prepData(packed);
+				setTimeout(() => makeChart(data), 0);
+			});
+		</script>
+	</body>
+</html>
