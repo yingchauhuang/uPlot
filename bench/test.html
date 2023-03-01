@@ -36,10 +36,10 @@
 
 				// 55,550 data points x 3 series = 166,650
 				let data = [
+					arrayColumn(packed,0),
 					arrayColumn(packed,1),
 					arrayColumn(packed,2),
 					arrayColumn(packed,3),
-					arrayColumn(packed,4),
 				];
 
 
@@ -50,9 +50,8 @@
 
 			function makeChart(data) {
 				console.time("chart");
-
 				const opts = {
-					title: "Server Events",
+					title: "Bond Quotation" + BondID,
 					width: 1920,
 					height: 600,
 				//	ms:     1,
@@ -65,21 +64,21 @@
 						{
 							label: "Bid",
 							scale: "%",
-							value: (u, v) => v == null ? null : v.toFixed(1) + "%",
+							value: (u, v) => v == null ? null : "$ " +v.toFixed(1),
 							stroke: "red",
 							width: 1/devicePixelRatio,
 						},
 						{
 							label: "Ask",
 							scale: "%",
-							value: (u, v) => v == null ? null : v.toFixed(1) + "%",
+							value: (u, v) => v == null ? null : "$ " +v.toFixed(1),
 							stroke: "blue",
 							width: 1/devicePixelRatio,
 						},
 						{
 							label: "Price",
-							scale: "mb",
-							value: (u, v) => v == null ? null : v.toFixed(2) + " MB",
+							scale: "%",
+							value: (u, v) => v == null ? null : "$ " +v.toFixed(2),
 							stroke: "green",
 							width: 1/devicePixelRatio,
 						}
@@ -88,14 +87,7 @@
 						{},
 						{
 							scale: "%",
-							values: (u, vals, space) => vals.map(v => +v.toFixed(1) + "%"),
-						},
-						{
-							side: 1,
-							scale: "mb",
-							size: 60,
-							values: (u, vals, space) => vals.map(v => +v.toFixed(2) + " MB"),
-							grid: {show: false},
+							values: (u, vals, space) => vals.map(v => "$ " +v.toFixed(1)  ),
 						},
 					],
 				};
@@ -107,10 +99,15 @@
 					console.timeEnd("chart");
 				});
 			}
-
+			const params = new Proxy(new URLSearchParams(window.location.search), {
+					get: (searchParams, prop) => searchParams.get(prop),
+				});
+				// Get the value of "some_key" in eg "https://example.com/?some_key=some_value"
+			let BondID = params.BondID;
 			let wait = document.getElementById("wait");
 			wait.textContent = "Fetching data.json (2.07MB)....";
-			fetch("AU0000078644.json").then(r => r.json()).then(packed => {
+
+			fetch(BondID+"AU0000078644.json").then(r => r.json()).then(packed => {
 				wait.textContent = "Rendering...";
 				let data = prepData(packed);
 				setTimeout(() => makeChart(data), 0);
