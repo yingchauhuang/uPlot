@@ -63,6 +63,7 @@ import {
 	hasData,
 	numIntDigits,
 	isUndef,
+	guessDec,
 } from './utils';
 
 import {
@@ -104,7 +105,6 @@ import {
 	LEGEND,
 	LEGEND_LIVE,
 	LEGEND_INLINE,
-	LEGEND_THEAD,
 	LEGEND_SERIES,
 	LEGEND_MARKER,
 	LEGEND_LABEL,
@@ -135,7 +135,6 @@ import {
 } from './fmtDate';
 
 import {
-	lineMult,
 	ptDia,
 	cursorOpts,
 
@@ -159,6 +158,7 @@ import {
 	timeAxisVals,
 	numAxisVals,
 
+	log2AxisValsFilt,
 	log10AxisValsFilt,
 
 	timeSeriesVal,
@@ -548,7 +548,9 @@ export default function uPlot(opts, data, then) {
 		markers.fill   = fnOrSelf(markers.fill);
 	}
 
-	let legendEl;
+	let legendTable;
+	let legendHead;
+	let legendBody;
 	let legendRows = [];
 	let legendCells = [];
 	let legendCols;
@@ -565,20 +567,24 @@ export default function uPlot(opts, data, then) {
 	}
 
 	if (showLegend) {
-		legendEl = placeTag("table", LEGEND, root);
+		legendTable = placeTag("table", LEGEND, root);
+		legendBody = placeTag("tbody", null, legendTable);
 
-		legend.mount(self, legendEl);
+		// allows legend to be moved out of root
+		legend.mount(self, legendTable);
 
 		if (multiValLegend) {
-			let head = placeTag("tr", LEGEND_THEAD, legendEl);
+			legendHead = placeTag("thead", null, legendTable, legendBody);
+
+			let head = placeTag("tr", null, legendHead);
 			placeTag("th", null, head);
 
 			for (var key in legendCols)
 				placeTag("th", LEGEND_LABEL, head).textContent = key;
 		}
 		else {
-			addClass(legendEl, LEGEND_INLINE);
-			legend.live && addClass(legendEl, LEGEND_LIVE);
+			addClass(legendTable, LEGEND_INLINE);
+			legend.live && addClass(legendTable, LEGEND_LIVE);
 		}
 	}
 
@@ -591,7 +597,7 @@ export default function uPlot(opts, data, then) {
 
 		let cells = [];
 
-		let row = placeTag("tr", LEGEND_SERIES, legendEl, legendEl.childNodes[i]);
+		let row = placeTag("tr", LEGEND_SERIES, legendBody, legendBody.childNodes[i]);
 
 		addClass(row, s.class);
 
@@ -1006,6 +1012,13 @@ export default function uPlot(opts, data, then) {
 			axis.size   = fnOrSelf(axis.size);
 			axis.space  = fnOrSelf(axis.space);
 			axis.rotate = fnOrSelf(axis.rotate);
+
+			if (isArr(axis.incrs)) {
+				axis.incrs.forEach(incr => {
+					!fixedDec.has(incr) && fixedDec.set(incr, guessDec(incr));
+				});
+			}
+
 			axis.incrs  = fnOrSelf(axis.incrs  || (          sc.distr == 2 ? wholeIncrs : (isTime ? (ms == 1 ? timeIncrsMs : timeIncrsS) : numIncrs)));
 			axis.splits = fnOrSelf(axis.splits || (isTime && sc.distr == 1 ? _timeAxisSplits : sc.distr == 3 ? logAxisSplits : sc.distr == 4 ? asinhAxisSplits : numAxisSplits));
 
@@ -1031,7 +1044,7 @@ export default function uPlot(opts, data, then) {
 				) : av || numAxisVals
 			);
 
-			axis.filter = fnOrSelf(axis.filter || (          sc.distr >= 3 && sc.log == 10 ? log10AxisValsFilt : retArg1));
+			axis.filter = fnOrSelf(axis.filter || (          sc.distr >= 3 && sc.log == 10 ? log10AxisValsFilt : sc.distr == 3 && sc.log == 2 ? log2AxisValsFilt : retArg1));
 
 			axis.font      = pxRatioFont(axis.font);
 			axis.labelFont = pxRatioFont(axis.labelFont);
@@ -1489,10 +1502,12 @@ export default function uPlot(opts, data, then) {
 
 			let halfWid = width * pxRatio / 2;
 
-			if (s.min == 0)
+			let {min: scaleMin, max: scaleMax, dir: scaleDir } = scales[s.scale];
+
+			if (scaleDir == 1 ? s.min == scaleMin : s.max == scaleMax)
 				hgt += halfWid;
 
-			if (s.max == 0) {
+			if (scaleDir == 1 ? s.max == scaleMax : s.min == scaleMin) {
 				top -= halfWid;
 				hgt += halfWid;
 			}
@@ -1832,7 +1847,7 @@ export default function uPlot(opts, data, then) {
 
 			setFontStyle(font, fillStyle, textAlign, textBaseline);
 
-			let lineHeight = axis.font[1] * lineMult;
+			let lineHeight = axis.font[1] * axis.lineGap;
 
 			let canOffs = _splits.map(val => pxRound(getPos(val, scale, plotDim, plotOff)));
 
@@ -2273,7 +2288,7 @@ export default function uPlot(opts, data, then) {
 	}
 
 	if (showLegend && cursorFocus) {
-		on(mouseleave, legendEl, e => {
+		on(mouseleave, legendTable, e => {
 			if (cursor._lock)
 				return;
 
@@ -3010,7 +3025,9 @@ export default function uPlot(opts, data, then) {
 	events.mouseup = mouseUp;
 	events.dblclick = dblClick;
 	events["setSeries"] = (e, src, idx, opts) => {
-		setSeries(idx, opts, true, false);
+		let seriesIdxMatcher = syncOpts.match[2];
+		idx = seriesIdxMatcher(self, src, idx);
+		idx != -1 && setSeries(idx, opts, true, false);
 	};
 
 	if (FEAT_CURSOR && cursor.show) {
@@ -3042,6 +3059,8 @@ export default function uPlot(opts, data, then) {
 			hooks[evName] = (hooks[evName] || []).concat(p.hooks[evName]);
 	});
 
+	const seriesIdxMatcher = (self, src, srcSeriesIdx) => srcSeriesIdx;
+
 	const syncOpts = FEAT_CURSOR && assign({
 		key: null,
 		setSeries: false,
@@ -3050,9 +3069,14 @@ export default function uPlot(opts, data, then) {
 			sub: retTrue,
 		},
 		scales: [xScaleKey, series[1] ? series[1].scale : null],
-		match: [retEq, retEq],
+		match: [retEq, retEq, seriesIdxMatcher],
 		values: [null, null],
 	}, cursor.sync);
+
+	if (FEAT_CURSOR) {
+		if (syncOpts.match.length == 2)
+			syncOpts.match.push(seriesIdxMatcher);
+	}
 
 	FEAT_CURSOR && (cursor.sync = syncOpts);
 
@@ -3080,7 +3104,7 @@ export default function uPlot(opts, data, then) {
 		mouseListeners.clear();
 		off(dppxchange, win, syncPxRatio);
 		root.remove();
-		FEAT_LEGEND && legendEl?.remove(); // in case mounted outside of root
+		FEAT_LEGEND && legendTable?.remove(); // in case mounted outside of root
 		fire("destroy");
 	}
 

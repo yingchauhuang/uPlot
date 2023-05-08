@@ -29,7 +29,6 @@ const CURSOR_PT      = pre + "cursor-pt";
 const LEGEND         = pre + "legend";
 const LEGEND_LIVE    = pre + "live";
 const LEGEND_INLINE  = pre + "inline";
-const LEGEND_THEAD   = pre + "thead";
 const LEGEND_SERIES  = pre + "series";
 const LEGEND_MARKER  = pre + "marker";
 const LEGEND_LABEL   = pre + "label";
@@ -1281,7 +1280,7 @@ const border = assign({}, axisLines, {
 
 const font      = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"';
 const labelFont = "bold " + font;
-const lineMult = 1.5;		// font-size multiplier
+const lineGap = 1.5;	// font-size multiplier
 
 const xAxisOpts = {
 	show: true,
@@ -1302,6 +1301,7 @@ const xAxisOpts = {
 	ticks,
 	border,
 	font,
+	lineGap,
 	rotate: 0,
 };
 
@@ -1388,13 +1388,15 @@ const RE_12357 = /[12357]/;
 const RE_125   = /[125]/;
 const RE_1     = /1/;
 
+const _filt = (splits, distr, re, keepMod) => splits.map((v, i) => ((distr == 4 && v == 0) || i % keepMod == 0 && re.test(v.toExponential()[0])) ? v : null);
+
 function log10AxisValsFilt(self, splits, axisIdx, foundSpace, foundIncr) {
 	let axis = self.axes[axisIdx];
 	let scaleKey = axis.scale;
 	let sc = self.scales[scaleKey];
 
-	if (sc.distr == 3 && sc.log == 2)
-		return splits;
+//	if (sc.distr == 3 && sc.log == 2)
+//		return splits;
 
 	let valToPos = self.valToPos;
 
@@ -1409,7 +1411,28 @@ function log10AxisValsFilt(self, splits, axisIdx, foundSpace, foundIncr) {
 		RE_1
 	);
 
-	return splits.map(v => ((sc.distr == 4 && v == 0) || re.test(v)) ? v : null);
+	if (re == RE_1) {
+		let magSpace = abs(valToPos(1, scaleKey) - _10);
+
+		if (magSpace < minSpace)
+			return _filt(splits.slice().reverse(), sc.distr, re, ceil(minSpace / magSpace)).reverse(); // max->min skip
+	}
+
+	return _filt(splits, sc.distr, re, 1);
+}
+
+function log2AxisValsFilt(self, splits, axisIdx, foundSpace, foundIncr) {
+	let axis = self.axes[axisIdx];
+	let scaleKey = axis.scale;
+	let minSpace = axis._space;
+	let valToPos = self.valToPos;
+
+	let magSpace = abs(valToPos(1, scaleKey) - valToPos(2, scaleKey));
+
+	if (magSpace < minSpace)
+		return _filt(splits.slice().reverse(), 3, RE_ALL, ceil(minSpace / magSpace)).reverse(); // max->min skip
+
+	return splits;
 }
 
 function numSeriesVal(self, val, seriesIdx, dataIdx) {
@@ -1435,6 +1458,7 @@ const yAxisOpts = {
 	ticks,
 	border,
 	font,
+	lineGap,
 	rotate: 0,
 };
 
@@ -2923,7 +2947,9 @@ function uPlot(opts, data, then) {
 		markers.fill   = fnOrSelf(markers.fill);
 	}
 
-	let legendEl;
+	let legendTable;
+	let legendHead;
+	let legendBody;
 	let legendRows = [];
 	let legendCells = [];
 	let legendCols;
@@ -2940,20 +2966,24 @@ function uPlot(opts, data, then) {
 	}
 
 	if (showLegend) {
-		legendEl = placeTag("table", LEGEND, root);
+		legendTable = placeTag("table", LEGEND, root);
+		legendBody = placeTag("tbody", null, legendTable);
 
-		legend.mount(self, legendEl);
+		// allows legend to be moved out of root
+		legend.mount(self, legendTable);
 
 		if (multiValLegend) {
-			let head = placeTag("tr", LEGEND_THEAD, legendEl);
+			legendHead = placeTag("thead", null, legendTable, legendBody);
+
+			let head = placeTag("tr", null, legendHead);
 			placeTag("th", null, head);
 
 			for (var key in legendCols)
 				placeTag("th", LEGEND_LABEL, head).textContent = key;
 		}
 		else {
-			addClass(legendEl, LEGEND_INLINE);
-			legend.live && addClass(legendEl, LEGEND_LIVE);
+			addClass(legendTable, LEGEND_INLINE);
+			legend.live && addClass(legendTable, LEGEND_LIVE);
 		}
 	}
 
@@ -2966,7 +2996,7 @@ function uPlot(opts, data, then) {
 
 		let cells = [];
 
-		let row = placeTag("tr", LEGEND_SERIES, legendEl, legendEl.childNodes[i]);
+		let row = placeTag("tr", LEGEND_SERIES, legendBody, legendBody.childNodes[i]);
 
 		addClass(row, s.class);
 
@@ -3381,6 +3411,13 @@ function uPlot(opts, data, then) {
 			axis.size   = fnOrSelf(axis.size);
 			axis.space  = fnOrSelf(axis.space);
 			axis.rotate = fnOrSelf(axis.rotate);
+
+			if (isArr(axis.incrs)) {
+				axis.incrs.forEach(incr => {
+					!fixedDec.has(incr) && fixedDec.set(incr, guessDec(incr));
+				});
+			}
+
 			axis.incrs  = fnOrSelf(axis.incrs  || (          sc.distr == 2 ? wholeIncrs : (isTime ? (ms == 1 ? timeIncrsMs : timeIncrsS) : numIncrs)));
 			axis.splits = fnOrSelf(axis.splits || (isTime && sc.distr == 1 ? _timeAxisSplits : sc.distr == 3 ? logAxisSplits : sc.distr == 4 ? asinhAxisSplits : numAxisSplits));
 
@@ -3406,7 +3443,7 @@ function uPlot(opts, data, then) {
 				) : av || numAxisVals
 			);
 
-			axis.filter = fnOrSelf(axis.filter || (          sc.distr >= 3 && sc.log == 10 ? log10AxisValsFilt : retArg1));
+			axis.filter = fnOrSelf(axis.filter || (          sc.distr >= 3 && sc.log == 10 ? log10AxisValsFilt : sc.distr == 3 && sc.log == 2 ? log2AxisValsFilt : retArg1));
 
 			axis.font      = pxRatioFont(axis.font);
 			axis.labelFont = pxRatioFont(axis.labelFont);
@@ -3864,10 +3901,12 @@ function uPlot(opts, data, then) {
 
 			let halfWid = width * pxRatio / 2;
 
-			if (s.min == 0)
+			let {min: scaleMin, max: scaleMax, dir: scaleDir } = scales[s.scale];
+
+			if (scaleDir == 1 ? s.min == scaleMin : s.max == scaleMax)
 				hgt += halfWid;
 
-			if (s.max == 0) {
+			if (scaleDir == 1 ? s.max == scaleMax : s.min == scaleMin) {
 				top -= halfWid;
 				hgt += halfWid;
 			}
@@ -4207,7 +4246,7 @@ function uPlot(opts, data, then) {
 
 			setFontStyle(font, fillStyle, textAlign, textBaseline);
 
-			let lineHeight = axis.font[1] * lineMult;
+			let lineHeight = axis.font[1] * axis.lineGap;
 
 			let canOffs = _splits.map(val => pxRound(getPos(val, scale, plotDim, plotOff)));
 
@@ -4648,7 +4687,7 @@ function uPlot(opts, data, then) {
 	}
 
 	if (showLegend && cursorFocus) {
-		on(mouseleave, legendEl, e => {
+		on(mouseleave, legendTable, e => {
 			if (cursor._lock)
 				return;
 
@@ -5385,7 +5424,9 @@ function uPlot(opts, data, then) {
 	events.mouseup = mouseUp;
 	events.dblclick = dblClick;
 	events["setSeries"] = (e, src, idx, opts) => {
-		setSeries(idx, opts, true, false);
+		let seriesIdxMatcher = syncOpts.match[2];
+		idx = seriesIdxMatcher(self, src, idx);
+		idx != -1 && setSeries(idx, opts, true, false);
 	};
 
 	if (cursor.show) {
@@ -5417,6 +5458,8 @@ function uPlot(opts, data, then) {
 			hooks[evName] = (hooks[evName] || []).concat(p.hooks[evName]);
 	});
 
+	const seriesIdxMatcher = (self, src, srcSeriesIdx) => srcSeriesIdx;
+
 	const syncOpts = assign({
 		key: null,
 		setSeries: false,
@@ -5425,9 +5468,14 @@ function uPlot(opts, data, then) {
 			sub: retTrue,
 		},
 		scales: [xScaleKey, series[1] ? series[1].scale : null],
-		match: [retEq, retEq],
+		match: [retEq, retEq, seriesIdxMatcher],
 		values: [null, null],
 	}, cursor.sync);
+
+	{
+		if (syncOpts.match.length == 2)
+			syncOpts.match.push(seriesIdxMatcher);
+	}
 
 	(cursor.sync = syncOpts);
 
@@ -5455,7 +5503,7 @@ function uPlot(opts, data, then) {
 		mouseListeners.clear();
 		off(dppxchange, win, syncPxRatio);
 		root.remove();
-		legendEl?.remove(); // in case mounted outside of root
+		legendTable?.remove(); // in case mounted outside of root
 		fire("destroy");
 	}
 
